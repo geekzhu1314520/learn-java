@@ -3,17 +3,27 @@ package com.watermelon.commonmistakes.java8;
 import org.junit.Test;
 
 import java.awt.geom.Point2D;
+import java.io.IOException;
+import java.nio.file.*;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
+import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static org.hamcrest.CoreMatchers.is;
 import static org.junit.Assert.assertThat;
+import static org.junit.Assert.assertTrue;
 
 /**
  * 使用Stream简化集合操作
  */
 public class CoolStreamTest {
+
+    private static final Map<Long, Product> cache = new ConcurrentHashMap<>();
 
     private static double calc(List<Integer> nums) {
         List<Point2D> point2DList = new ArrayList<>();
@@ -45,5 +55,79 @@ public class CoolStreamTest {
                 .orElse(0);
         assertThat(average, is(streamResult));
     }
+
+    @Test
+    public void coolCache() {
+        getProductAndCacheCool(1L);
+        getProductAndCacheCool(100L);
+
+        System.out.println(cache);
+        assertThat(cache.size(), is(1));
+        assertTrue(cache.containsKey(1L));
+    }
+
+    @Test
+    public void nocoolCache() {
+        getProductAndCache(1L);
+        getProductAndCache(100L);
+
+        System.out.println(cache);
+        assertThat(cache.size(), is(1));
+        assertTrue(cache.containsKey(1L));
+    }
+
+
+    private Product getProductAndCache(Long id) {
+        Product product = cache.get(id);
+        if (product == null) {
+            for (Product p : Product.getData()) {
+                if (p.getId().equals(id)) {
+                    product = p;
+                    cache.put(id, product);
+                    break;
+                }
+            }
+        }
+        return product;
+    }
+
+    private Product getProductAndCacheCool(Long id) {
+        return cache.computeIfAbsent(id, i ->
+                Product.getData().stream()
+                        .filter(p -> p.getId().equals(id))
+                        .findFirst()
+                        .orElse(null));
+    }
+
+    private static Pattern CLASS_PATTERN = Pattern.compile("public class");
+
+    @Test
+    public void filesExample() throws IOException {
+        try (Stream<Path> pathStream = Files.walk(Paths.get("."))) {
+            pathStream.filter(Files::isRegularFile)
+                    .filter(FileSystems.getDefault().getPathMatcher("glob:**/*.java")::matches)
+                    .flatMap(ThrowingFunction.unchecked(path ->
+                            Files.readAllLines(path).stream()
+                                    .filter(line -> CLASS_PATTERN.matcher(line).find())
+                                    .map(line -> path.getFileName() + " >> " + line)))
+                    .forEach(System.out::println);
+        }
+    }
+
+    @FunctionalInterface
+    public interface ThrowingFunction<T, R, E extends Throwable> {
+        static <T, R, E extends Throwable> Function<T, R> unchecked(ThrowingFunction<T, R, E> f) {
+            return t -> {
+                try {
+                    return f.apply(t);
+                } catch (Throwable e) {
+                    throw new RuntimeException(e);
+                }
+            };
+        }
+
+        R apply(T t) throws E;
+    }
+
 
 }
